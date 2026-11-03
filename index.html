@@ -891,7 +891,7 @@ setupCards();renderShortcuts();
       notDone.forEach(t=>wrap(t.task,W-pad*2-30).forEach((l,i)=>lines.push((i?'    ':'  - ')+l)));
       const h=pad*2+lines.length*lh;
       const c=document.createElement('canvas');c.width=W;c.height=h;const x=c.getContext('2d');
-      x.fillStyle='#ffffff';x.fillRect(0,0,W,h);
+      const ratio=r.tasksTotal?r.tasksCompleted/r.tasksTotal:-1;const bg=ratio<0?'#e5e7eb':ratio>=0.8?'#3ddc63':ratio>=0.3?'#facc15':'#ef4444';x.fillStyle=bg;x.fillRect(0,0,W,h);
       x.fillStyle='#000000';x.font='26px '+F;
       lines.forEach((l,i)=>x.fillText(l,pad,pad+lh*(i+1)-10));
       c.toBlob(b=>res(b),'image/png');
