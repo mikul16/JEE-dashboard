@@ -868,12 +868,67 @@ setupCards();renderShortcuts();
       activity:logs.filter(x=>{try{return dayKey(new Date(x.at))===forDay}catch(e){return false}}),
       savedAt:new Date().toISOString()};
   }
+  function niceDate(k){try{const p=k.split('-').map(Number);return new Date(p[0],p[1]-1,p[2]).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}catch(e){return k}}
+  function doneAt(t){try{if(!t.completedAt)return '';const d=new Date(t.completedAt);return isNaN(d)?'':d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}catch(e){return ''}}
+  function reportText(r){
+    const done=r.tasks.filter(t=>t.completed),notDone=r.tasks.filter(t=>!t.completed);
+    const L=['DAILY REPORT - '+niceDate(r.date),'='.repeat(46),'','Study time : '+r.studyTime+'  ('+(Math.round(r.studySeconds/36)/100)+' hours)',
+      'Tasks      : '+r.tasksTotal+' total | '+r.tasksCompleted+' completed | '+r.tasksNotCompleted+' not completed','','COMPLETED ('+done.length+')','-'.repeat(46)];
+    if(!done.length)L.push('  (none)');
+    done.forEach(t=>{const d=doneAt(t);L.push('  [x] '+(t.task||'(untitled)')+(d?'   (done at '+d+')':''))});
+    L.push('','NOT COMPLETED ('+notDone.length+')','-'.repeat(46));
+    if(!notDone.length)L.push('  (none)');
+    notDone.forEach(t=>L.push('  [ ] '+(t.task||'(untitled)')));
+    L.push('','Saved on '+new Date(r.savedAt).toLocaleString());
+    return L.join('\r\n');
+  }
+  function reportPNG(r){
+    return new Promise(res=>{try{
+      const W=1080,pad=60,F='Arial, Helvetica, sans-serif',lineH=38;
+      const done=r.tasks.filter(t=>t.completed),notDone=r.tasks.filter(t=>!t.completed);
+      const m=document.createElement('canvas').getContext('2d');m.font='27px '+F;
+      const wrap=txt=>{const out=[];let cur='';String(txt||'(untitled)').split(/\s+/).forEach(w=>{const t=cur?cur+' '+w:w;if(m.measureText(t).width>W-pad*2-60&&cur){out.push(cur);cur=w}else cur=t});if(cur)out.push(cur);return out.length?out:['']};
+      const secs=[{title:'COMPLETED ('+done.length+')',color:'#15803d',mark:'\u2714',items:done.map(t=>wrap(t.task))},{title:'NOT COMPLETED ('+notDone.length+')',color:'#b91c1c',mark:'\u2718',items:notDone.map(t=>wrap(t.task))}];
+      let h=410;secs.forEach(sc=>{h+=64+20;if(!sc.items.length)h+=lineH+10;sc.items.forEach(l=>{h+=l.length*lineH+14})});h+=80;
+      const c=document.createElement('canvas');c.width=W;c.height=h;const x=c.getContext('2d');
+      x.fillStyle='#f4fbfb';x.fillRect(0,0,W,h);
+      x.fillStyle='#087d8d';x.fillRect(0,0,W,180);
+      x.fillStyle='#ffffff';x.font='bold 40px '+F;x.fillText('DAILY REPORT',pad,80);
+      x.font='28px '+F;x.fillText(niceDate(r.date),pad,130);
+      x.fillStyle='#4b6b70';x.font='26px '+F;x.fillText('Study time',pad,240);
+      x.fillStyle='#075766';x.font='bold 80px '+F;x.fillText(r.studyTime,pad,322);
+      x.fillStyle='#1f2d30';x.font='bold 30px '+F;
+      x.fillText('Tasks: '+r.tasksTotal+' total  |  '+r.tasksCompleted+' completed  |  '+r.tasksNotCompleted+' not completed',pad,372);
+      let y=410;
+      secs.forEach(sc=>{
+        y+=40;x.fillStyle=sc.color;x.font='bold 30px '+F;x.fillText(sc.title,pad,y);y+=24;
+        x.font='27px '+F;
+        if(!sc.items.length){x.fillStyle='#6b7f83';x.fillText('(none)',pad+50,y+30);y+=lineH+10}
+        sc.items.forEach(lines=>{
+          x.fillStyle=sc.color;x.font='bold 27px '+F;x.fillText(sc.mark,pad,y+30);
+          x.fillStyle='#1f2d30';x.font='27px '+F;
+          lines.forEach((ln,i)=>x.fillText(ln,pad+50,y+30+i*lineH));
+          y+=lines.length*lineH+14;
+        });
+        y+=20;
+      });
+      x.fillStyle='#6b7f83';x.font='22px '+F;x.fillText('Saved on '+new Date(r.savedAt).toLocaleString(),pad,h-30);
+      c.toBlob(b=>res(b),'image/png');
+    }catch(e){res(null)}});
+  }
+  async function putFile(name,data){const f=await folderHandle.getFileHandle(name,{create:true});const w=await f.createWritable();await w.write(data);await w.close()}
   async function writeFile(report,allowPrompt){
     if(!folderHandle)return false;
     let ok=await hasPerm(folderHandle);
     if(!ok&&allowPrompt)ok=await askPerm(folderHandle);
     if(!ok)return false;
-    try{const f=await folderHandle.getFileHandle('Dashboard-report-'+report.date+'.json',{create:true});const w=await f.createWritable();await w.write(JSON.stringify(report,null,2));await w.close();return true}catch(e){setStatus('Could not write to the folder ('+((e&&e.name)||'error')+'). Choose the folder again (use a NEW sub-folder, not Downloads or Documents itself).');return false}
+    try{
+      const base='Dashboard-report-'+report.date;
+      await putFile(base+'.txt',reportText(report));
+      const png=await reportPNG(report);
+      if(png)await putFile(base+'.png',png);
+      return true;
+    }catch(e){setStatus('Could not write to the folder ('+((e&&e.name)||'error')+'). Choose the folder again (use a NEW sub-folder, not Downloads or Documents itself).');return false}
   }
   function refreshButtons(){
     const n=readJSON(PENDING,[]).length,b=byId('savePendingReport');
