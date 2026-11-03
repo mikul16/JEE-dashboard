@@ -378,7 +378,7 @@ body { background-color:transparent !important; }
 <div id="widgetPicker" aria-label="Add hidden widgets"></div>
 <div class="editorbar"><button class="btn" id="editLayoutBtn">✥ EDIT LAYOUT</button><button class="btn alt" id="addShortcutBtn">＋ ADD SHORTCUT</button><button class="btn alt" id="fullBtn">ENTER FULL SCREEN</button><span class="muted" id="editHint">Arrange and resize your dashboard widgets.</span></div>
 <article class="card" id="shortcutsCard"><h2>⚡ Quick Shortcuts</h2><div class="muted">Your favourite websites and app links</div><div class="shortcut-grid" id="shortcutGrid"></div><div class="edit-tools"><span class="edit-tag">WIDGET SIZE</span><button class="btn light" data-size="w-">W −</button><button class="btn light" data-size="w+">W +</button><button class="btn light" data-size="h-">H −</button><button class="btn light" data-size="h+">H +</button></div></article>
-<div class="quote" id="quote"></div><div class="status" id="status">Autosaving dashboard data every minute. Daily report downloads after 2:00 AM.</div></section></main>
+<div class="quote" id="quote"></div><div class="status" id="status">Autosaving every minute. The daily report is saved to your chosen folder at 3:00 AM.</div><div class="status" id="dailyReportStatus">Report folder: not chosen yet. Use CHOOSE REPORT FOLDER at the bottom.</div></section></main>
 <div class="overlay hidden" id="examModal"><div class="modal"><h3>Set JEE Main exam date & time</h3><label for="examDate">Exam date and time</label><input id="examDate" type="datetime-local" style="width:100%"><div class="row" style="justify-content:flex-end;margin-top:18px"><button class="btn light" id="cancelExam">CANCEL</button><button class="btn" id="applyExam">SET COUNTDOWN</button></div></div></div>
 <div class="overlay hidden" id="shortcutModal"><div class="modal"><h3>Add a quick shortcut</h3><div class="shortcut-form"><input id="shortcutName" placeholder="Name (e.g. YouTube)"><input id="shortcutIcon" placeholder="Icon / emoji (e.g. ▶️)"><input id="shortcutUrl" placeholder="Website URL (https://...)" style="grid-column:1/-1"><button class="btn" id="saveShortcut">ADD SHORTCUT</button></div><p class="muted">For websites, enter the full URL. App links work if ChromeOS/browser supports the link.</p><div class="row" style="justify-content:flex-end"><button class="btn light" id="cancelShortcut">CANCEL</button></div></div></div>
 <script>
@@ -843,57 +843,124 @@ setupCards();renderShortcuts();
 <script id="daily-rollover-folder-support">
 (function(){
   const KEY='iitbDailyRollover_v1', HANDLE_DB='iitbDailyReportFolderDB', HANDLE_STORE='handles';
-  let folderHandle=null, rolloverTimer=null;
+  const PENDING='iitb-pending-reports', HISTORY='iitb-report-history';
+  let folderHandle=null, rolloverTimer=null, lastPrompt=0, flushing=false;
   const byId=id=>document.getElementById(id);
-  function dayKey(d=new Date()){return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-')}
-  function previousDayKey(d=new Date()){const x=new Date(d);x.setDate(x.getDate()-1);return dayKey(x)}
+  const setStatus=m=>{try{const e=byId('dailyReportStatus');if(e)e.textContent=m}catch(e){}};
+  const pad=n=>String(n).padStart(2,'0');
+  // A "day" runs from 3:00 AM to 2:59 AM (same rule as the rest of the dashboard).
+  function dayKey(d=new Date()){const x=new Date(d.getTime()-3*3600*1000);return x.getFullYear()+'-'+pad(x.getMonth()+1)+'-'+pad(x.getDate())}
+  const readJSON=(k,f)=>{try{const v=JSON.parse(localStorage.getItem(k));return v==null?f:v}catch(e){return f}};
+  const writeJSON=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
   function dbOpen(){return new Promise((resolve,reject)=>{const req=indexedDB.open(HANDLE_DB,1);req.onupgradeneeded=()=>req.result.createObjectStore(HANDLE_STORE);req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)})}
   async function saveHandle(h){const db=await dbOpen();await new Promise((res,rej)=>{const tx=db.transaction(HANDLE_STORE,'readwrite');tx.objectStore(HANDLE_STORE).put(h,'folder');tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});db.close()}
   async function loadHandle(){try{const db=await dbOpen();const h=await new Promise((res,rej)=>{const tx=db.transaction(HANDLE_STORE,'readonly');const r=tx.objectStore(HANDLE_STORE).get('folder');r.onsuccess=()=>res(r.result||null);r.onerror=()=>rej(r.error)});db.close();return h}catch(e){return null}}
-  async function permission(h,write=false){if(!h)return false;const opts={mode:write?'readwrite':'read'};if(await h.queryPermission(opts)==='granted')return true;return await h.requestPermission(opts)==='granted'}
+  async function hasPerm(h){try{return !!h&&(await h.queryPermission({mode:'readwrite'}))==='granted'}catch(e){return false}}
+  async function askPerm(h){try{return (await h.requestPermission({mode:'readwrite'}))==='granted'}catch(e){return false}}
   function reportObject(forDay){
     const allTasks=Array.isArray(tasks)?tasks:[];
     const logs=Array.isArray(activityLog)?activityLog:[];
-    const completed=allTasks.filter(t=>t.done).map(t=>({task:t.text,completedAt:t.completedAt||null}));
-    return {date:forDay,studySeconds:Math.round(Number(seconds)||0),studyTime:new Date(Math.max(0,Math.round(Number(seconds)||0))*1000).toISOString().slice(11,19),tasksTotal:allTasks.length,tasksCompleted:completed.length,tasks:allTasks.map(t=>({task:t.text,completed:!!t.done,completedAt:t.completedAt||null})),activity:logs.filter(x=>{try{return dayKey(new Date(x.at))===forDay}catch(e){return false}}),savedAt:new Date().toISOString()};
+    const completed=allTasks.filter(t=>t.done);
+    const secs=Math.max(0,Math.round(Number(seconds)||0));
+    return {date:forDay,studySeconds:secs,studyTime:new Date(secs*1000).toISOString().slice(11,19),
+      tasksTotal:allTasks.length,tasksCompleted:completed.length,tasksNotCompleted:allTasks.length-completed.length,
+      tasks:allTasks.map(t=>({task:t.text,completed:!!t.done,completedAt:t.completedAt||null})),
+      activity:logs.filter(x=>{try{return dayKey(new Date(x.at))===forDay}catch(e){return false}}),
+      savedAt:new Date().toISOString()};
   }
-  async function writeReport(forDay,data){
-    if(!folderHandle || !(await permission(folderHandle,true)))return false;
-    try{const file=await folderHandle.getFileHandle('Dashboard-report-'+forDay+'.json',{create:true});const writable=await file.createWritable();await writable.write(JSON.stringify(data||reportObject(forDay),null,2));await writable.close();return true}catch(e){return false}
+  async function writeFile(report,allowPrompt){
+    if(!folderHandle)return false;
+    let ok=await hasPerm(folderHandle);
+    if(!ok&&allowPrompt)ok=await askPerm(folderHandle);
+    if(!ok)return false;
+    try{const f=await folderHandle.getFileHandle('Dashboard-report-'+report.date+'.json',{create:true});const w=await f.createWritable();await w.write(JSON.stringify(report,null,2));await w.close();return true}catch(e){setStatus('Could not write to the folder ('+((e&&e.name)||'error')+'). Choose the folder again (use a NEW sub-folder, not Downloads or Documents itself).');return false}
+  }
+  function refreshButtons(){
+    const n=readJSON(PENDING,[]).length,b=byId('savePendingReport');
+    if(b){b.style.display=n?'':'none';b.textContent='SAVE '+n+' PENDING REPORT'+(n>1?'S':'')}
+  }
+  async function flushPending(allowPrompt){
+    if(flushing)return;flushing=true;
+    try{
+      let list=readJSON(PENDING,[]);
+      if(!list.length)return;
+      const left=[];
+      for(const r of list){const ok=await writeFile(r,allowPrompt);if(!ok)left.push(r)}
+      writeJSON(PENDING,left);
+      if(!left.length)setStatus('Daily report saved to your folder.');
+      else setStatus(left.length+' report(s) waiting. Tap "SAVE PENDING REPORT" (or click anywhere) and allow folder access.');
+    }catch(e){}finally{flushing=false;refreshButtons()}
   }
   function resetDay(){
-    const now=new Date(), current=dayKey(now), previous=previousDayKey(now);
-    let state={};try{state=JSON.parse(localStorage.getItem(KEY)||'{}')}catch(e){}
-    const last=state.lastDay||current;
-    if(last!==current){
-      // Preserve the just-finished day's values before resetting the dashboard.
-      const completedDay=last;
-      const completedReport=reportObject(completedDay);
-      try{localStorage.setItem('iitb-pending-daily-report',JSON.stringify(completedReport))}catch(e){}
-      writeReport(completedDay,completedReport).then(ok=>{if(ok){try{localStorage.removeItem('iitb-pending-daily-report')}catch(e){}}else if(byId('dailyReportStatus'))byId('dailyReportStatus').textContent='Daily rollover completed; choose a report folder to export the report.'});
-      if(typeof window.pauseStudyTimer==='function')window.pauseStudyTimer('daily_rollover');
-      if(typeof window.logActivity==='function')window.logActivity('daily_rollover',{archivedDay:completedDay});
-      seconds=0;tasks=[];running=false;
-      try{localStorage.setItem('iitBombay2027Dashboard',JSON.stringify({examTarget:examTarget||'',seconds:0,tasks:[],slots:slots||[],activityLog:activityLog||[]}));}catch(e){}
-      try{window.renderTimer?.();window.renderTasks?.();window.autoSaveDashboard?.()}catch(e){}
-      state={lastDay:current};
-    }
-    localStorage.setItem(KEY,JSON.stringify({lastDay:current}));
+    try{
+      const current=dayKey();
+      const state=readJSON(KEY,{});
+      const last=state.lastDay||current;
+      if(last!==current){
+        const report=reportObject(last);
+        const pend=readJSON(PENDING,[]).filter(r=>r.date!==last);pend.push(report);writeJSON(PENDING,pend);
+        const hist=readJSON(HISTORY,[]).filter(r=>r.date!==last);hist.push(report);writeJSON(HISTORY,hist.slice(-90));
+        writeJSON(KEY,{lastDay:current});
+        try{if(typeof window.pauseStudyTimer==='function')window.pauseStudyTimer('daily_rollover')}catch(e){}
+        try{if(typeof window.logActivity==='function')window.logActivity('daily_rollover',{archivedDay:last})}catch(e){}
+        seconds=0;tasks=[];running=false;
+        try{localStorage.setItem('iitBombay2027Dashboard',JSON.stringify({examTarget:examTarget||'',seconds:0,tasks:[],slots:slots||[],activityLog:activityLog||[]}))}catch(e){}
+        try{window.renderTimer&&window.renderTimer();window.renderTasks&&window.renderTasks();window.autoSaveDashboard&&window.autoSaveDashboard()}catch(e){}
+        refreshButtons();flushPending(false);
+      }else if(!state.lastDay){writeJSON(KEY,{lastDay:current})}
+    }catch(e){}
   }
-  function schedule(){clearTimeout(rolloverTimer);const now=new Date(),next=new Date(now);next.setHours(3,0,0,0);if(next<=now)next.setDate(next.getDate()+1);rolloverTimer=setTimeout(()=>{resetDay();schedule()},Math.max(1000,next-now))}
+  function schedule(){
+    clearTimeout(rolloverTimer);
+    const now=new Date(),next=new Date(now);next.setHours(3,0,0,0);if(next<=now)next.setDate(next.getDate()+1);
+    rolloverTimer=setTimeout(()=>{resetDay();schedule()},Math.max(1000,next-now));
+  }
   async function chooseFolder(){
-    if(!window.showDirectoryPicker){alert('Folder selection is not supported in this browser context. Open this dashboard in Chrome and try again.');return}
-    try{const h=await window.showDirectoryPicker({mode:'readwrite'});if(await permission(h,true)){folderHandle=h;await saveHandle(h);if(byId('dailyReportStatus'))byId('dailyReportStatus').textContent='Daily reports will be saved to the selected folder.';let pending=null;try{pending=JSON.parse(localStorage.getItem('iitb-pending-daily-report')||'null')}catch(e){}if(pending&&pending.date){const ok=await writeReport(pending.date,pending);if(ok)localStorage.removeItem('iitb-pending-daily-report')} }}
-    catch(e){if(e.name!=='AbortError'&&byId('dailyReportStatus'))byId('dailyReportStatus').textContent='Could not access the selected folder. Please choose it again.'}
+    if(!window.showDirectoryPicker){alert('Folder selection is not supported here. Open the dashboard in Chrome.');return}
+    try{
+      const h=await window.showDirectoryPicker({mode:'readwrite'});
+      if(await askPerm(h)||await hasPerm(h)){folderHandle=h;await saveHandle(h);setStatus('Daily reports will be saved to the selected folder.');await flushPending(true)}
+    }catch(e){if(e&&e.name!=='AbortError')setStatus('Could not access the selected folder. Please choose it again.')}
   }
-  function addFolderControl(){
-    const host=document.querySelector('#bottomDock .editorbar');if(!host||byId('chooseDailyFolder'))return;
-    const b=document.createElement('button');b.className='btn light';b.id='chooseDailyFolder';b.textContent='CHOOSE REPORT FOLDER';b.addEventListener('click',chooseFolder);host.appendChild(b);
+  async function saveNow(){
+    if(!folderHandle){await chooseFolder();if(!folderHandle)return}
+    const ok=await writeFile(reportObject(dayKey()),true);
+    setStatus(ok?'Report for today saved to your folder (it is saved again at 3 AM).':'Could not save. Choose the folder again.');
+    if(ok)await flushPending(true);
   }
-  window.addEventListener('DOMContentLoaded',async()=>{
-    addFolderControl();folderHandle=await loadHandle();if(folderHandle){const ok=await permission(folderHandle,false);if(byId('dailyReportStatus'))byId('dailyReportStatus').textContent=ok?'Daily report folder is connected. Re-select it if writing is blocked.':'Re-select your report folder to allow daily exports.'}
-    resetDay();schedule();
-  });
+  function addControls(){
+    const host=document.querySelector('#bottomDock .editorbar');if(!host)return;
+    const mk=(id,text,fn,hide)=>{if(byId(id))return;const b=document.createElement('button');b.className='btn light';b.id=id;b.textContent=text;if(hide)b.style.display='none';b.addEventListener('click',fn);host.appendChild(b)};
+    mk('chooseDailyFolder','CHOOSE REPORT FOLDER',chooseFolder);
+    mk('saveReportNow','SAVE REPORT NOW',saveNow);
+    mk('savePendingReport','SAVE PENDING REPORT',()=>flushPending(true),true);
+  }
+  let askedSession=false;
+  async function saveToday(allowPrompt){if(!folderHandle)return false;return writeFile(reportObject(dayKey()),allowPrompt)}
+  async function onGesture(){
+    if(!folderHandle||flushing)return;
+    const hasPending=readJSON(PENDING,[]).length>0;
+    const first=!askedSession;
+    if(!hasPending&&!first)return;
+    if(!first&&Date.now()-lastPrompt<10*60*1000)return;
+    askedSession=true;lastPrompt=Date.now();
+    if(await hasPerm(folderHandle)){if(hasPending)flushPending(false);return}
+    const ok=await askPerm(folderHandle);
+    if(ok){setStatus('Folder access restored.');await flushPending(false);await saveToday(false)}
+    else setStatus('Folder access not allowed yet. Reports are kept safely in the app and will be saved once you allow access.');
+  }
+  async function init(){
+    try{addControls()}catch(e){}
+    try{folderHandle=await loadHandle()}catch(e){folderHandle=null}
+    if(folderHandle){const ok=await hasPerm(folderHandle);setStatus(ok?'Daily report folder is connected.':'Folder saved. Click anywhere once and allow access so reports can be written.')}else{setStatus('Report folder: not chosen yet. Use CHOOSE REPORT FOLDER at the bottom.')}
+    resetDay();schedule();refreshButtons();flushPending(false);
+    setInterval(resetDay,60000);
+    setInterval(async()=>{try{if(folderHandle&&await hasPerm(folderHandle)&&await saveToday(false))setStatus('Last saved to your folder at '+new Date().toLocaleTimeString()+'.')}catch(e){}},5*60*1000);
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden){resetDay();flushPending(false)}});
+    window.addEventListener('focus',()=>{resetDay()});
+    ['pointerdown','keydown'].forEach(ev=>window.addEventListener(ev,onGesture,true));
+  }
+  if(document.readyState==='loading')window.addEventListener('DOMContentLoaded',init);else init();
 })();
 </script>
 
