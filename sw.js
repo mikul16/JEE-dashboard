@@ -1,4 +1,4 @@
-const C='day-v7';
+const C='day-v8';
 self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(['./','./index.html','./manifest.json'])));self.skipWaiting()});
 self.addEventListener('activate',e=>e.waitUntil((async()=>{
   const keys=await caches.keys();await Promise.all(keys.filter(k=>k!==C).map(k=>caches.delete(k)));
