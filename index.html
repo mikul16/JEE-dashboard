@@ -386,10 +386,12 @@ html,body,.veil{background:#000!important;background-image:none!important}
 *{scrollbar-color:#3b78e7 #000;text-shadow:none!important}
 
 /* Text written on the background: centred, medium, white */
-#bgText{position:fixed;inset:0;z-index:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(6px,1vw,14px);text-align:center;pointer-events:none;user-select:none;-webkit-user-select:none;padding:46vh 4vw 0;color:#fff}
+#bgText{position:fixed;inset:0;z-index:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(6px,1vw,14px);text-align:center;pointer-events:none;user-select:none;-webkit-user-select:none;padding:0 4vw;color:#fff}
 #bgText .bg-l1{font-weight:900;font-size:clamp(30px,5vw,72px);line-height:1.05;letter-spacing:.06em;white-space:nowrap;color:#fff}
 #bgText .bg-l2{display:flex;flex-wrap:wrap;justify-content:center;gap:.2em clamp(10px,1.6vw,24px);font-weight:700;font-size:clamp(15px,2.2vw,32px);letter-spacing:.12em;color:#fff}
+#bgText .bg-l3{margin-top:clamp(4px,.8vw,12px);font-weight:600;font-style:italic;font-size:clamp(12px,1.4vw,20px);letter-spacing:.04em;color:#fff}
 #bgText .bg-l2 span+span:before{content:"\2022";margin-right:clamp(10px,1.6vw,24px);color:#fff}
+#bgText .bg-l3{margin-top:clamp(6px,1vw,14px);font-size:clamp(12px,1.4vw,19px);font-weight:500;font-style:italic;letter-spacing:.04em;color:#fff;max-width:90vw}
 @media(max-width:600px){#bgText .bg-l1{white-space:normal}#bgText .bg-l2 span+span:before{display:none}}
 
 /* Header & footer text */
@@ -434,7 +436,7 @@ body.edit-mode .card{border:2px dashed #8ec5ff!important}
 #taskCelebration .celebrate-title{color:#fff!important}
 #taskCelebration .celebrate-close{background:#041a4d!important}
 </style>
-</head><body><div class="veil"></div><div id="bgText" aria-hidden="true"><div class="bg-l1">LAST CHANCE</div><div class="bg-l2"><span>MAINS 2027</span><span>JAN</span><span>99%ile</span></div></div><main class="wrap"><header class="top"><div><div class="brand">IIT BOMBAY 2027</div><div class="sub">DREAM · PREPARE · ACHIEVE</div></div><div class="datetime"><div id="dateNow"></div></div></header>
+</head><body><div class="veil"></div><div id="bgText" aria-hidden="true"><div class="bg-l1">LAST CHANCE</div><div class="bg-l2"><span>MAINS 2027</span><span>JAN</span><span>99%ile</span></div><div class="bg-l3">tu usi din har jayega jis din har manjayega</div></div><main class="wrap"><header class="top"><div><div class="brand">IIT BOMBAY 2027</div><div class="sub">DREAM · PREPARE · ACHIEVE</div></div><div class="datetime"><div id="dateNow"></div></div></header>
 <section class="hero"><div class="days" id="daysCard" title="Click to set exam date and time"><div class="label">DAYS LEFT</div><div class="num" id="daysNum">SET</div><div class="hint">Click to set exam date & time</div></div><div class="clock"><div class="flip"><div class="digits" id="hh">00</div><div class="unit">HOURS</div></div><div class="flip"><div class="digits" id="mm">00</div><div class="unit">MINUTES</div></div><div class="flip"><div class="digits" id="ss">00</div><div class="unit">SECONDS</div></div></div></section>
 <section class="cards">
 <article class="card"><h2>⏱ Study Hours</h2><div class="muted">Today's focused study time</div><div id="studyTotal" style="font-size:43px;font-weight:900;color:var(--deep);font-variant-numeric:tabular-nums">00:00:00</div><div class="row"><button class="btn" id="startBtn">START</button><button class="btn alt" id="pauseBtn">PAUSE</button><button class="btn light" id="resetBtn">RESET</button></div><div class="row"><input id="manualHours" type="number" min="0" max="24" step="0.25" placeholder="Correct total (hours)"><button class="btn light" id="setHours">SET</button></div><div class="muted">Dashboard data autosaves every minute. Daily report is saved at 3:00 AM when a report folder is selected.<div id="dailyReportStatus" style="margin-top:6px;font-size:11px;font-weight:700">Report folder: not chosen yet.</div><div style="font-size:10px;opacity:.7">App version 8</div></div></article>
