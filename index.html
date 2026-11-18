@@ -510,6 +510,9 @@ setupCards();renderShortcuts();
  flips.forEach((f,i)=>item('timer-'+i,f,'flipitem',4,9));
  cardEls.forEach((c,i)=>{c.classList.remove('card');c.classList.add('carditem');item(['study','schedule','tasks'][i]||('card'+i),c,'carditem',6,17)});
  item('shortcuts',shortcuts,'carditem',6,14);
+ const foldersCard=document.createElement('article');foldersCard.className='carditem';foldersCard.id='foldersCard';
+ foldersCard.innerHTML='<h2>\uD83D\uDCC1 Folders</h2><div id="folderGrid" class="folder-grid"></div><div class="row"><button class="btn" id="addFolderBtn">\uFF0B ADD FOLDER</button></div>';
+ item('folders',foldersCard,'carditem',6,14);
  // Manual countdown timer with a 15-second alarm.
  const stopwatchCard=document.createElement('article');
  stopwatchCard.className='card'; stopwatchCard.id='countdownTimerCard';
@@ -665,6 +668,7 @@ setupCards();renderShortcuts();
      });
    }
  } catch(e) { console.warn('Could not restore dashboard layout:',e); }
+ try{const sl=JSON.parse(localStorage.getItem('iitBombayUniversalLayout_v5')||'null');if(Array.isArray(sl)&&sl.length&&!sl.some(i=>i&&i.id==='folders')){const fb=ws.querySelector(':scope > .witem[data-id="folders"]');if(fb){const low=[...ws.children].filter(b=>b!==fb&&!b.hidden).reduce((m,b)=>Math.max(m,(parseFloat(b.style.top)||0)+b.offsetHeight),0);fb.style.top=(low+14)+'px';fb.style.left='0px'}}}catch(e){}
  [...ws.children].forEach(box=>{
    const panel=box.querySelector('.sizing-panel');
    if(panel){
@@ -717,7 +721,7 @@ setupCards();renderShortcuts();
 
  // Add/remove any dashboard widget from the editor palette.
  const picker=document.getElementById('widgetPicker');
- const widgetNames={brand:'Heading',datetime:'Date',days:'Days left', 'timer-0':'Live hour tile','timer-1':'Live minute tile','timer-2':'Live second tile',study:'Study hours',schedule:'Schedule',tasks:'Tasks',shortcuts:'Quick shortcuts',quote:'Motivational quote'};
+ const widgetNames={brand:'Heading',datetime:'Date',days:'Days left', 'timer-0':'Live hour tile','timer-1':'Live minute tile','timer-2':'Live second tile',study:'Study hours',schedule:'Schedule',tasks:'Tasks',shortcuts:'Quick shortcuts',folders:'Folders',quote:'Motivational quote'};
  function refreshPicker(){
    picker.innerHTML='';
    [...ws.children].forEach(box=>{
@@ -1171,62 +1175,79 @@ body.controls-revealed #bottomDock .editorbar{opacity:1!important;visibility:vis
 </script>
 
 <div class="overlay hidden" id="folderModal"><div class="modal" style="width:min(560px,95vw);display:flex;flex-direction:column;max-height:80vh"><div class="row" style="justify-content:space-between;margin-bottom:8px"><h3 id="folderTitle" style="margin:0;overflow-wrap:anywhere">Folder</h3><button class="btn light" id="folderClose">CLOSE</button></div><div class="row" style="margin-bottom:8px"><button class="btn light" id="folderUp">&larr; BACK</button><span class="muted" id="folderPath" style="overflow-wrap:anywhere"></span></div><div id="folderList" style="overflow:auto;display:flex;flex-direction:column;gap:6px;min-height:80px"></div></div></div>
-<style id="folder-shortcut-styles">
+<style id="folder-widget-styles">
+#foldersCard{display:flex;flex-direction:column;gap:10px;width:100%}
+#foldersCard h2{margin:0;font-size:21px;color:#fff}
+.folder-grid{display:flex;flex-direction:column;gap:8px;overflow:auto;flex:1 1 auto;min-height:40px}
+.folder-row{display:flex;gap:6px;align-items:stretch}
+.folder-row .fopen{flex:1;min-width:0;display:flex;align-items:center;gap:10px;border:0;border-radius:10px;padding:10px 12px;background:#0e44b0;color:#fff;font:inherit;font-weight:800;text-align:left;cursor:pointer}
+.folder-row .fopen:hover{background:#3b78e7}
+.folder-row .fopen .fn{overflow-wrap:anywhere}
+.folder-row .fremove{flex:0 0 auto;border:0;border-radius:10px;padding:0 12px;background:#041a4d;color:#fff;font:inherit;font-size:11px;font-weight:800;cursor:pointer}
+.folder-row .fremove:hover{background:#7a1020}
 #folderList .fitem{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:9px;background:#0e44b0;color:#fff;cursor:pointer;border:0;font:inherit;text-align:left;width:100%}
 #folderList .fitem:hover{background:#3b78e7}
 #folderList .fitem .fi{font-size:20px}
 #folderList .fitem .fn{flex:1;overflow-wrap:anywhere;font-weight:700}
 #folderList .fitem .fs{font-size:11px;opacity:.8;white-space:nowrap}
-.shortcut.is-folder{cursor:pointer}
 </style>
-<script id="folder-shortcuts">
+<script id="folder-widget">
 (function(){
   'use strict';
-  var DB='iitb-folder-shortcuts',ST='handles';
+  var DB='iitb-folder-shortcuts',ST='handles',KEY='iitb-folder-widget-items';
   function dbo(){return new Promise(function(res,rej){var r=indexedDB.open(DB,1);r.onupgradeneeded=function(){r.result.createObjectStore(ST)};r.onsuccess=function(){res(r.result)};r.onerror=function(){rej(r.error)}})}
   function put(k,v){return dbo().then(function(db){return new Promise(function(res,rej){var tx=db.transaction(ST,'readwrite');tx.objectStore(ST).put(v,k);tx.oncomplete=function(){db.close();res()};tx.onerror=function(){rej(tx.error)}})})}
   function get(k){return dbo().then(function(db){return new Promise(function(res,rej){var r=db.transaction(ST,'readonly').objectStore(ST).get(k);r.onsuccess=function(){db.close();res(r.result||null)};r.onerror=function(){rej(r.error)}})})}
+  function del(k){return dbo().then(function(db){return new Promise(function(res){var tx=db.transaction(ST,'readwrite');tx.objectStore(ST).delete(k);tx.oncomplete=function(){db.close();res()};tx.onerror=function(){res()}})}).catch(function(){})}
   var $=function(id){return document.getElementById(id)};
 
-  // --- add-folder button(s) ---
-  var bar=document.querySelector('#bottomDock .editorbar');
-  var add=document.getElementById('addShortcutBtn');
-  var fb=document.createElement('button');fb.className='btn alt';fb.id='addFolderBtn';fb.textContent='\uD83D\uDCC1 ADD FOLDER';
-  if(add&&add.parentNode)add.parentNode.insertBefore(fb,add.nextSibling);
-  var mb=document.createElement('button');mb.className='btn light';mb.textContent='\uD83D\uDCC1 ADD A FOLDER INSTEAD';mb.style.gridColumn='1/-1';
-  var sf=document.querySelector('#shortcutModal .shortcut-form');if(sf)sf.appendChild(mb);
+  var items=[];try{items=JSON.parse(localStorage.getItem(KEY)||'[]')||[]}catch(e){}
+  function save(){try{localStorage.setItem(KEY,JSON.stringify(items))}catch(e){}}
 
-  async function addFolder(){
-    if(!window.showDirectoryPicker){alert('Folder shortcuts need Chrome / Edge (desktop or ChromeOS).');return}
-    var h;try{h=await window.showDirectoryPicker({mode:'read'})}catch(e){return}
-    var fid='f'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-    try{await put(fid,h)}catch(e){alert('Could not save this folder shortcut.');return}
-    shortcutItems.push({name:h.name||'Folder',icon:'\uD83D\uDCC1',folder:true,fid:fid});
-    $('shortcutModal').classList.add('hidden');
-    renderShortcuts();
-    try{window.persistDashboardLayout&&window.persistDashboardLayout()}catch(e){}
-  }
-  fb.onclick=addFolder;mb.onclick=addFolder;
+  // Folder tiles added earlier to Quick Shortcuts move into the Folders widget.
+  try{
+    var moved=[],keep=[];
+    shortcutItems.forEach(function(x){if(x&&x.folder&&x.fid)moved.push({name:x.name,fid:x.fid});else keep.push(x)});
+    if(moved.length){
+      moved.forEach(function(m){if(!items.some(function(y){return y.fid===m.fid}))items.push(m)});
+      shortcutItems.length=0;keep.forEach(function(x){shortcutItems.push(x)});
+      save();renderShortcuts();
+      if(window.persistDashboardLayout)window.persistDashboardLayout();
+    }
+  }catch(e){}
 
-  // --- make folder tiles clickable ---
-  var orig=window.renderShortcuts;
-  function decorate(){
-    var grid=$('shortcutGrid');if(!grid)return;
-    shortcutItems.forEach(function(x,i){
-      var a=grid.children[i];if(!a||!x||!x.folder)return;
-      a.removeAttribute('href');a.removeAttribute('target');a.classList.add('is-folder');a.title='Open folder';
-      a.addEventListener('click',function(e){if(e.target.closest&&e.target.closest('button'))return;e.preventDefault();openFolder(x)});
+  function render(){
+    var g=$('folderGrid');if(!g)return;g.innerHTML='';
+    if(!items.length){var m=document.createElement('div');m.className='muted';m.textContent='No folders yet. Click \uFF0B ADD FOLDER.';g.appendChild(m);return}
+    items.forEach(function(x,i){
+      var row=document.createElement('div');row.className='folder-row';
+      var o=document.createElement('button');o.type='button';o.className='fopen';o.title='Open folder';
+      var ic=document.createElement('span');ic.textContent='\uD83D\uDCC1';var nm=document.createElement('span');nm.className='fn';nm.textContent=x.name;
+      o.append(ic,nm);o.onclick=function(){openFolder(x)};
+      var r=document.createElement('button');r.type='button';r.className='fremove';r.textContent='\u2715 REMOVE';r.title='Remove this folder from the dashboard';
+      r.onclick=function(e){e.stopPropagation();
+        if(!confirm('Remove the folder "'+x.name+'" from the dashboard?\n\n(Your real folder and files are NOT deleted.)'))return;
+        items.splice(i,1);save();del(x.fid);render()};
+      row.append(o,r);g.appendChild(row);
     });
   }
-  window.renderShortcuts=function(){orig.apply(this,arguments);decorate()};
-  window.renderShortcuts();
+
+  async function addFolder(){
+    if(!window.showDirectoryPicker){alert('Folder widget needs Chrome / Edge (desktop or ChromeOS).');return}
+    var h;try{h=await window.showDirectoryPicker({mode:'read'})}catch(e){return}
+    var fid='f'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    try{await put(fid,h)}catch(e){alert('Could not save this folder.');return}
+    items.push({name:h.name||'Folder',fid:fid});save();render();
+  }
+  var ab=$('addFolderBtn');if(ab)ab.onclick=addFolder;
+  render();
 
   // --- folder viewer ---
   var stack=[],cur=null,rootName='';
   function fmt(n){if(n<1024)return n+' B';if(n<1048576)return (n/1024).toFixed(0)+' KB';return (n/1048576).toFixed(1)+' MB'}
   async function openFolder(x){
     var h;try{h=await get(x.fid)}catch(e){}
-    if(!h){alert('This folder shortcut lost its link. Remove it and add the folder again.');return}
+    if(!h){alert('This folder lost its link. Remove it and add the folder again.');return}
     try{
       var p=await h.queryPermission({mode:'read'});
       if(p!=='granted')p=await h.requestPermission({mode:'read'});
@@ -1239,12 +1260,12 @@ body.controls-revealed #bottomDock .editorbar{opacity:1!important;visibility:vis
     $('folderPath').textContent='/'+[rootName].concat(stack.slice(1).map(function(d){return d.name}),stack.length?[cur.name]:[]).join('/');
     $('folderUp').style.visibility=stack.length?'visible':'hidden';
     var list=$('folderList');list.innerHTML='<div class="muted">Loading\u2026</div>';
-    var items=[];
-    try{for await(var e of cur.values())items.push(e)}catch(err){list.innerHTML='<div class="muted">Could not read this folder (permission or it was moved).</div>';return}
-    items.sort(function(a,b){return a.kind===b.kind?a.name.localeCompare(b.name,undefined,{numeric:true}):(a.kind==='directory'?-1:1)});
+    var entries=[];
+    try{for await(var e of cur.values())entries.push(e)}catch(err){list.innerHTML='<div class="muted">Could not read this folder (permission or it was moved).</div>';return}
+    entries.sort(function(a,b){return a.kind===b.kind?a.name.localeCompare(b.name,undefined,{numeric:true}):(a.kind==='directory'?-1:1)});
     list.innerHTML='';
-    if(!items.length){list.innerHTML='<div class="muted">This folder is empty.</div>';return}
-    items.forEach(function(e){
+    if(!entries.length){list.innerHTML='<div class="muted">This folder is empty.</div>';return}
+    entries.forEach(function(e){
       var b=document.createElement('button');b.className='fitem';
       var i=document.createElement('span');i.className='fi';i.textContent=e.kind==='directory'?'\uD83D\uDCC1':'\uD83D\uDCC4';
       var n=document.createElement('span');n.className='fn';n.textContent=e.name;
