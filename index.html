@@ -511,7 +511,7 @@ setupCards();renderShortcuts();
  cardEls.forEach((c,i)=>{c.classList.remove('card');c.classList.add('carditem');item(['study','schedule','tasks'][i]||('card'+i),c,'carditem',6,17)});
  item('shortcuts',shortcuts,'carditem',6,14);
  const foldersCard=document.createElement('article');foldersCard.className='carditem';foldersCard.id='foldersCard';
- foldersCard.innerHTML='<h2>\uD83D\uDCC1 Folders</h2><div id="folderGrid" class="folder-grid"></div><div class="row"><button class="btn" id="addFolderBtn">\uFF0B ADD FOLDER</button></div>';
+ foldersCard.innerHTML='<h2>\uD83D\uDCC1 Folders</h2><div id="folderGrid" class="folder-grid"></div>';
  item('folders',foldersCard,'carditem',6,14);
  // Manual countdown timer with a 15-second alarm.
  const stopwatchCard=document.createElement('article');
@@ -1174,6 +1174,7 @@ body.controls-revealed #bottomDock .editorbar{opacity:1!important;visibility:vis
 })();
 </script>
 
+<div class="overlay hidden" id="folderManageModal"><div class="modal" style="width:min(460px,95vw);display:flex;flex-direction:column;max-height:80vh"><div class="row" style="justify-content:space-between;margin-bottom:10px"><h3 style="margin:0">📁 Manage folders</h3><button class="btn light" id="manageClose">CLOSE</button></div><button class="btn" id="addFolderBtn" style="margin-bottom:12px">＋ CHOOSE A FOLDER TO ADD</button><div class="muted" style="margin-bottom:6px">Added folders</div><div id="manageList" style="overflow:auto;display:flex;flex-direction:column;gap:8px;min-height:40px"></div></div></div>
 <div class="overlay hidden" id="folderModal"><div class="modal" style="width:min(560px,95vw);display:flex;flex-direction:column;max-height:80vh"><div class="row" style="justify-content:space-between;margin-bottom:8px"><h3 id="folderTitle" style="margin:0;overflow-wrap:anywhere">Folder</h3><button class="btn light" id="folderClose">CLOSE</button></div><div class="row" style="margin-bottom:8px"><button class="btn light" id="folderUp">&larr; BACK</button><span class="muted" id="folderPath" style="overflow-wrap:anywhere"></span></div><div id="folderList" style="overflow:auto;display:flex;flex-direction:column;gap:6px;min-height:80px"></div></div></div>
 <style id="folder-widget-styles">
 #foldersCard{display:flex;flex-direction:column;gap:10px;width:100%}
@@ -1183,8 +1184,10 @@ body.controls-revealed #bottomDock .editorbar{opacity:1!important;visibility:vis
 .folder-row .fopen{flex:1;min-width:0;display:flex;align-items:center;gap:10px;border:0;border-radius:10px;padding:10px 12px;background:#0e44b0;color:#fff;font:inherit;font-weight:800;text-align:left;cursor:pointer}
 .folder-row .fopen:hover{background:#3b78e7}
 .folder-row .fopen .fn{overflow-wrap:anywhere}
-.folder-row .fremove{flex:0 0 auto;border:0;border-radius:10px;padding:0 12px;background:#041a4d;color:#fff;font:inherit;font-size:11px;font-weight:800;cursor:pointer}
-.folder-row .fremove:hover{background:#7a1020}
+.mrow{display:flex;gap:6px;align-items:center;background:#0e44b0;border-radius:10px;padding:8px 8px 8px 12px;color:#fff}
+.mrow .mn{flex:1;min-width:0;overflow-wrap:anywhere;font-weight:800}
+.folder-row .fremove,.mrow .fremove{flex:0 0 auto;border:0;border-radius:10px;padding:8px 12px;background:#041a4d;color:#fff;font:inherit;font-size:11px;font-weight:800;cursor:pointer}
+.folder-row .fremove:hover,.mrow .fremove:hover{background:#7a1020}
 #folderList .fitem{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:9px;background:#0e44b0;color:#fff;cursor:pointer;border:0;font:inherit;text-align:left;width:100%}
 #folderList .fitem:hover{background:#3b78e7}
 #folderList .fitem .fi{font-size:20px}
@@ -1218,17 +1221,27 @@ body.controls-revealed #bottomDock .editorbar{opacity:1!important;visibility:vis
 
   function render(){
     var g=$('folderGrid');if(!g)return;g.innerHTML='';
-    if(!items.length){var m=document.createElement('div');m.className='muted';m.textContent='No folders yet. Click \uFF0B ADD FOLDER.';g.appendChild(m);return}
+    if(!items.length){var m=document.createElement('div');m.className='muted';m.textContent='No folders yet. Use the ADD FOLDER button at the bottom.';g.appendChild(m);return}
     items.forEach(function(x,i){
       var row=document.createElement('div');row.className='folder-row';
       var o=document.createElement('button');o.type='button';o.className='fopen';o.title='Open folder';
       var ic=document.createElement('span');ic.textContent='\uD83D\uDCC1';var nm=document.createElement('span');nm.className='fn';nm.textContent=x.name;
       o.append(ic,nm);o.onclick=function(){openFolder(x)};
-      var r=document.createElement('button');r.type='button';r.className='fremove';r.textContent='\u2715 REMOVE';r.title='Remove this folder from the dashboard';
-      r.onclick=function(e){e.stopPropagation();
+      row.append(o);g.appendChild(row);
+    });
+    renderManage();
+  }
+  function renderManage(){
+    var l=$('manageList');if(!l)return;l.innerHTML='';
+    if(!items.length){var m=document.createElement('div');m.className='muted';m.textContent='No folders added yet.';l.appendChild(m);return}
+    items.forEach(function(x,i){
+      var row=document.createElement('div');row.className='mrow';
+      var n=document.createElement('span');n.className='mn';n.textContent='\uD83D\uDCC1 '+x.name;
+      var r=document.createElement('button');r.type='button';r.className='fremove';r.textContent='\u2715 REMOVE';
+      r.onclick=function(){
         if(!confirm('Remove the folder "'+x.name+'" from the dashboard?\n\n(Your real folder and files are NOT deleted.)'))return;
         items.splice(i,1);save();del(x.fid);render()};
-      row.append(o,r);g.appendChild(row);
+      row.append(n,r);l.appendChild(row);
     });
   }
 
@@ -1240,6 +1253,13 @@ body.controls-revealed #bottomDock .editorbar{opacity:1!important;visibility:vis
     items.push({name:h.name||'Folder',fid:fid});save();render();
   }
   var ab=$('addFolderBtn');if(ab)ab.onclick=addFolder;
+  // The only add/remove entry point: a button in the bottom controls.
+  var addSc=$('addShortcutBtn');
+  var fb=document.createElement('button');fb.className='btn alt';fb.id='openFolderManageBtn';fb.textContent='\uD83D\uDCC1 ADD FOLDER';
+  if(addSc&&addSc.parentNode)addSc.parentNode.insertBefore(fb,addSc.nextSibling);
+  fb.onclick=function(){renderManage();$('folderManageModal').classList.remove('hidden')};
+  $('manageClose').onclick=function(){$('folderManageModal').classList.add('hidden')};
+  $('folderManageModal').addEventListener('click',function(e){if(e.target===this)this.classList.add('hidden')});
   render();
 
   // --- folder viewer ---
