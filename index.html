@@ -1169,6 +1169,100 @@ body.controls-revealed #bottomDock .editorbar{opacity:1!important;visibility:vis
   updateBottomControls();
 })();
 </script>
+
+<div class="overlay hidden" id="folderModal"><div class="modal" style="width:min(560px,95vw);display:flex;flex-direction:column;max-height:80vh"><div class="row" style="justify-content:space-between;margin-bottom:8px"><h3 id="folderTitle" style="margin:0;overflow-wrap:anywhere">Folder</h3><button class="btn light" id="folderClose">CLOSE</button></div><div class="row" style="margin-bottom:8px"><button class="btn light" id="folderUp">&larr; BACK</button><span class="muted" id="folderPath" style="overflow-wrap:anywhere"></span></div><div id="folderList" style="overflow:auto;display:flex;flex-direction:column;gap:6px;min-height:80px"></div></div></div>
+<style id="folder-shortcut-styles">
+#folderList .fitem{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:9px;background:#0e44b0;color:#fff;cursor:pointer;border:0;font:inherit;text-align:left;width:100%}
+#folderList .fitem:hover{background:#3b78e7}
+#folderList .fitem .fi{font-size:20px}
+#folderList .fitem .fn{flex:1;overflow-wrap:anywhere;font-weight:700}
+#folderList .fitem .fs{font-size:11px;opacity:.8;white-space:nowrap}
+.shortcut.is-folder{cursor:pointer}
+</style>
+<script id="folder-shortcuts">
+(function(){
+  'use strict';
+  var DB='iitb-folder-shortcuts',ST='handles';
+  function dbo(){return new Promise(function(res,rej){var r=indexedDB.open(DB,1);r.onupgradeneeded=function(){r.result.createObjectStore(ST)};r.onsuccess=function(){res(r.result)};r.onerror=function(){rej(r.error)}})}
+  function put(k,v){return dbo().then(function(db){return new Promise(function(res,rej){var tx=db.transaction(ST,'readwrite');tx.objectStore(ST).put(v,k);tx.oncomplete=function(){db.close();res()};tx.onerror=function(){rej(tx.error)}})})}
+  function get(k){return dbo().then(function(db){return new Promise(function(res,rej){var r=db.transaction(ST,'readonly').objectStore(ST).get(k);r.onsuccess=function(){db.close();res(r.result||null)};r.onerror=function(){rej(r.error)}})})}
+  var $=function(id){return document.getElementById(id)};
+
+  // --- add-folder button(s) ---
+  var bar=document.querySelector('#bottomDock .editorbar');
+  var add=document.getElementById('addShortcutBtn');
+  var fb=document.createElement('button');fb.className='btn alt';fb.id='addFolderBtn';fb.textContent='\uD83D\uDCC1 ADD FOLDER';
+  if(add&&add.parentNode)add.parentNode.insertBefore(fb,add.nextSibling);
+  var mb=document.createElement('button');mb.className='btn light';mb.textContent='\uD83D\uDCC1 ADD A FOLDER INSTEAD';mb.style.gridColumn='1/-1';
+  var sf=document.querySelector('#shortcutModal .shortcut-form');if(sf)sf.appendChild(mb);
+
+  async function addFolder(){
+    if(!window.showDirectoryPicker){alert('Folder shortcuts need Chrome / Edge (desktop or ChromeOS).');return}
+    var h;try{h=await window.showDirectoryPicker({mode:'read'})}catch(e){return}
+    var fid='f'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    try{await put(fid,h)}catch(e){alert('Could not save this folder shortcut.');return}
+    shortcutItems.push({name:h.name||'Folder',icon:'\uD83D\uDCC1',folder:true,fid:fid});
+    $('shortcutModal').classList.add('hidden');
+    renderShortcuts();
+    try{window.persistDashboardLayout&&window.persistDashboardLayout()}catch(e){}
+  }
+  fb.onclick=addFolder;mb.onclick=addFolder;
+
+  // --- make folder tiles clickable ---
+  var orig=window.renderShortcuts;
+  function decorate(){
+    var grid=$('shortcutGrid');if(!grid)return;
+    shortcutItems.forEach(function(x,i){
+      var a=grid.children[i];if(!a||!x||!x.folder)return;
+      a.removeAttribute('href');a.removeAttribute('target');a.classList.add('is-folder');a.title='Open folder';
+      a.addEventListener('click',function(e){if(e.target.closest&&e.target.closest('button'))return;e.preventDefault();openFolder(x)});
+    });
+  }
+  window.renderShortcuts=function(){orig.apply(this,arguments);decorate()};
+  window.renderShortcuts();
+
+  // --- folder viewer ---
+  var stack=[],cur=null,rootName='';
+  function fmt(n){if(n<1024)return n+' B';if(n<1048576)return (n/1024).toFixed(0)+' KB';return (n/1048576).toFixed(1)+' MB'}
+  async function openFolder(x){
+    var h;try{h=await get(x.fid)}catch(e){}
+    if(!h){alert('This folder shortcut lost its link. Remove it and add the folder again.');return}
+    try{
+      var p=await h.queryPermission({mode:'read'});
+      if(p!=='granted')p=await h.requestPermission({mode:'read'});
+      if(p!=='granted')return;
+    }catch(e){}
+    stack=[];cur=h;rootName=x.name;$('folderModal').classList.remove('hidden');await show();
+  }
+  async function show(){
+    $('folderTitle').textContent='\uD83D\uDCC1 '+cur.name;
+    $('folderPath').textContent='/'+[rootName].concat(stack.slice(1).map(function(d){return d.name}),stack.length?[cur.name]:[]).join('/');
+    $('folderUp').style.visibility=stack.length?'visible':'hidden';
+    var list=$('folderList');list.innerHTML='<div class="muted">Loading\u2026</div>';
+    var items=[];
+    try{for await(var e of cur.values())items.push(e)}catch(err){list.innerHTML='<div class="muted">Could not read this folder (permission or it was moved).</div>';return}
+    items.sort(function(a,b){return a.kind===b.kind?a.name.localeCompare(b.name,undefined,{numeric:true}):(a.kind==='directory'?-1:1)});
+    list.innerHTML='';
+    if(!items.length){list.innerHTML='<div class="muted">This folder is empty.</div>';return}
+    items.forEach(function(e){
+      var b=document.createElement('button');b.className='fitem';
+      var i=document.createElement('span');i.className='fi';i.textContent=e.kind==='directory'?'\uD83D\uDCC1':'\uD83D\uDCC4';
+      var n=document.createElement('span');n.className='fn';n.textContent=e.name;
+      b.append(i,n);
+      if(e.kind==='directory'){b.onclick=function(){stack.push(cur);cur=e;show()}}
+      else{
+        var sz=document.createElement('span');sz.className='fs';b.append(sz);
+        e.getFile().then(function(f){sz.textContent=fmt(f.size)}).catch(function(){});
+        b.onclick=async function(){try{var f=await e.getFile();var u=URL.createObjectURL(f);window.open(u,'_blank');setTimeout(function(){URL.revokeObjectURL(u)},120000)}catch(err){alert('Could not open this file.')}};
+      }
+      list.appendChild(b);
+    });
+  }
+  $('folderUp').onclick=function(){if(stack.length){cur=stack.pop();show()}};
+  $('folderClose').onclick=function(){$('folderModal').classList.add('hidden')};
+  $('folderModal').addEventListener('click',function(e){if(e.target===this)this.classList.add('hidden')});
+})();
+</script>
 </body></html>
 
 
